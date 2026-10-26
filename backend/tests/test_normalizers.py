@@ -9,6 +9,7 @@ These tests exist to drive the TDD loop now; whether they survive once the
 HTTP seam (ticket 09) covers the same ground is a decision for integration.
 """
 
+from datetime import date
 from decimal import Decimal
 
 import pytest
@@ -176,3 +177,37 @@ class TestNormalizeText:
     def test_stores_sql_injection_payload_as_literal_text(self):
         payload = "O'Connor'); DROP TABLE candidates;--"
         assert normalize_text(payload) == payload
+
+
+class TestNonFiniteSalary:
+    """Decimal() parses these without raising, and NUMERIC stores 'NaN'.
+
+    Found by probing rather than by the fixture -- no row in
+    candidates_import.csv contains them, so the original test set passed while
+    a "NaN" salary would have been persisted as a non-numeric number.
+    """
+
+    @pytest.mark.parametrize("raw", ["nan", "NaN", "snan", "inf", "Infinity", "-inf", "-Infinity"])
+    def test_non_finite_salary_loads_as_unknown(self, raw: str) -> None:
+        assert normalize_salary(raw) is None
+
+
+class TestDateParsingIsLocaleIndependent:
+    """`%b` reads the C library's locale tables, so under LC_TIME=de_DE a
+    `DD-Mon-YYYY` date would not parse. Setup must work on a clean machine."""
+
+    def test_text_month_parses_under_a_non_english_lc_time(self, monkeypatch) -> None:
+        import locale
+
+        try:
+            locale.setlocale(locale.LC_TIME, "de_DE.UTF-8")
+        except locale.Error:
+            pytest.skip("de_DE.UTF-8 not available on this machine")
+        try:
+            assert normalize_applied_date("14-May-2026") == date(2026, 5, 14)
+        finally:
+            locale.setlocale(locale.LC_TIME, "C")
+
+    def test_impossible_text_month_date_is_rejected(self) -> None:
+        with pytest.raises(NormalizationError):
+            normalize_applied_date("30-Feb-2026")

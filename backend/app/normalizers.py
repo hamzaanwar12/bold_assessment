@@ -39,7 +39,18 @@ CANONICAL_STATUSES = frozenset({"active", "screening", "interviewing", "withdraw
 _EMAIL_PATTERN = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 
 # Accepted applied-date formats, in the order they are tried.
-_DATE_FORMATS = ("%Y-%m-%d", "%m/%d/%Y", "%d-%b-%Y")
+_DATE_FORMATS = ("%Y-%m-%d", "%m/%d/%Y")
+
+# Parsed explicitly rather than with %b, which reads the C library's locale
+# tables: under LC_TIME=de_DE, "14-May-2026" would not parse. Setup must work
+# on a clean machine whatever its locale.
+_MONTH_ABBREVIATIONS = {
+    m: i
+    for i, m in enumerate(
+        ("jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec"), 1
+    )
+}
+_TEXT_DATE_PATTERN = re.compile(r"^(\d{1,2})-([A-Za-z]{3})-(\d{4})$")
 
 
 class NormalizationError(ValueError):
@@ -103,6 +114,13 @@ def normalize_applied_date(raw: str | None) -> date | None:
             return datetime.strptime(value, fmt).date()
         except ValueError:
             continue
+    if match := _TEXT_DATE_PATTERN.match(value):
+        day, month_abbr, year = match.groups()
+        if month := _MONTH_ABBREVIATIONS.get(month_abbr.lower()):
+            try:
+                return date(int(year), month, int(day))
+            except ValueError:
+                pass  # a real-looking but impossible day, e.g. 30-Feb-2026
     raise NormalizationError(
         "applied_date", raw or "", f"applied date {raw!r} does not parse to a real calendar date"
     )
@@ -123,6 +141,12 @@ def normalize_salary(raw: str | None) -> Decimal | None:
     try:
         amount = Decimal(cleaned)
     except InvalidOperation:
+        return None
+    # Decimal() accepts "NaN", "sNaN" and "Infinity" without raising, and
+    # PostgreSQL NUMERIC stores 'NaN' happily -- so without this guard a
+    # legacy export containing "NaN" would persist a non-numeric salary that
+    # later arithmetic blows up on. Not a number means unknown.
+    if not amount.is_finite():
         return None
     if has_k_suffix:
         amount *= 1000
