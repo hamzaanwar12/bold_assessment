@@ -108,7 +108,7 @@ export function CandidateView() {
           </thead>
           <tbody>
             {data?.items.map((c) => (
-              <tr key={c.legacy_candidate_id}>
+              <tr key={c.id}>
                 <td>
                   {c.first_name} {c.last_name}
                 </td>

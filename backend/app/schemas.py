@@ -45,7 +45,12 @@ class Candidate(BaseModel):
     # actually is (ADR 0001: a non-unique legacy reference, never an identity).
     # Without this alias the column is silently dropped and every Candidate
     # loses its traceability back to the source export.
-    legacy_candidate_id: str | None = Field(default=None, alias="candidate_id")
+    # validation_alias, NOT alias: the alias exists to read the source column.
+    # A plain `alias=` also applies on the way OUT, and FastAPI serializes
+    # response models with by_alias=True by default -- which silently renamed
+    # this field to `candidate_id` in the API response and broke the frontend,
+    # which was reading `legacy_candidate_id` and getting undefined.
+    legacy_candidate_id: str | None = Field(default=None, validation_alias="candidate_id")
     first_name: str | None = None
     last_name: str | None = None
     email: str
@@ -107,3 +112,25 @@ class ImportReport(BaseModel):
     imported: int
     merged: int
     rejected: list[RejectedRow]
+
+
+class CandidateOut(Candidate):
+    """A Candidate as returned by the list endpoint: the stored row plus its
+    database identity.
+
+    `id` is the stable identity for a returned row. Legacy Candidate ID is
+    NOT -- the source data reuses one value across two different people
+    (ADR 0001), so anything keying on it (a React list key, a cache entry)
+    will collide."""
+
+    id: int
+
+
+class CandidateListPage(BaseModel):
+    """One page of the Candidate list (spec.md: API contract,
+    `GET /api/v1/candidates`)."""
+
+    items: list[CandidateOut]
+    total: int
+    page: int
+    page_size: int

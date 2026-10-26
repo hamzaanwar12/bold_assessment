@@ -23,10 +23,9 @@ Import is Admin-only in the application as well (docs/adr/0002,
 from __future__ import annotations
 
 import psycopg
-from pydantic import BaseModel
 
 from app.dedup import MergeOutcome, merge_candidate
-from app.schemas import Candidate
+from app.schemas import Candidate, CandidateListPage, CandidateOut
 
 # Column order shared by the SELECT (to rehydrate existing Candidates) and
 # the INSERT (to write the folded result). One list, so the two statements
@@ -60,6 +59,19 @@ def _candidate_from_row(row: dict[str, object]) -> Candidate:
     return Candidate.model_construct(**row)
 
 
+def _set_recruiter_scope(cur: psycopg.Cursor, recruiter_id: str) -> None:
+    """Bind the RLS policy's recruiter for this transaction.
+
+    One helper on purpose: this is the single line the whole authorization
+    model rests on, and it must stay a BOUND PARAMETER. `set_config(..., true)`
+    is transaction-local and parameterizable; interpolating the id into a `SET`
+    statement would reintroduce injection at exactly the point the security
+    model depends on (ADR 0002). Two copies of this is two chances to get it
+    wrong.
+    """
+    cur.execute("SELECT set_config('app.recruiter_id', %s, true)", (recruiter_id,))
+
+
 # PostgreSQL's hard limit is 65535 bind parameters per statement.
 _MAX_ROWS_PER_STATEMENT = 65535 // len(_FIELDS)
 
@@ -83,7 +95,7 @@ def write_import(
         return (0, 0)
 
     with conn.cursor() as cur:
-        cur.execute("SELECT set_config('app.recruiter_id', %s, true)", (recruiter_id,))
+        _set_recruiter_scope(cur, recruiter_id)
 
         emails = [outcome.candidate.email for outcome in outcomes]
         cur.execute(
@@ -156,23 +168,6 @@ def write_import(
 _LIST_FIELDS = ("id", *_FIELDS)
 
 
-class CandidateOut(Candidate):
-    """A Candidate as returned by the list endpoint (ticket 07): the stored
-    row plus its database identity. Lives here, not in app/schemas.py --
-    that module is scoped to the Candidate/Import Report shapes owned by
-    earlier tickets (see its module docstring)."""
-
-    id: int
-
-
-class CandidateListPage(BaseModel):
-    """One page of the Candidate list (spec.md: API contract,
-    `GET /api/v1/candidates`)."""
-
-    items: list[CandidateOut]
-    total: int
-    page: int
-    page_size: int
 
 
 def list_candidates(
@@ -200,7 +195,7 @@ def list_candidates(
     page 2 can repeat or skip rows.
     """
     with conn.cursor() as cur:
-        cur.execute("SELECT set_config('app.recruiter_id', %s, true)", (recruiter_id,))
+        _set_recruiter_scope(cur, recruiter_id)
 
         where_clauses: list[str] = []
         params: list[object] = []
