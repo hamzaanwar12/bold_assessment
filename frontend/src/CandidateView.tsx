@@ -43,8 +43,8 @@ export function CandidateView() {
   const totalPages = data ? Math.max(1, Math.ceil(data.total / data.page_size)) : 1;
 
   return (
-    <main>
-      <h1>Candidates</h1>
+    <section aria-labelledby="candidates-heading">
+      <h2 id="candidates-heading">Candidates</h2>
 
       <div className="controls">
         <label>
@@ -148,6 +148,6 @@ export function CandidateView() {
           </button>
         </div>
       )}
-    </main>
+    </section>
   );
 }
