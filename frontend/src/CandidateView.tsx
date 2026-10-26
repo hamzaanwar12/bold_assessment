@@ -1,8 +1,8 @@
-import { useState } from "react";
-import { CandidateTable } from "./components/CandidateTable";
+import { lazy, Suspense, useState } from "react";
 import { EmptyState, ErrorBanner } from "./components/Notices";
 import { Pagination } from "./components/Pagination";
 import { StatsBar } from "./components/StatsBar";
+import { TableSkeleton } from "./components/TableSkeleton";
 import { Toolbar } from "./components/Toolbar";
 import { RECRUITERS } from "./recruiters";
 import { useCandidates } from "./useCandidates";
@@ -10,6 +10,12 @@ import { useDebouncedValue } from "./useDebouncedValue";
 
 const STATUSES = ["active", "screening", "interviewing", "withdrawn"];
 const PAGE_SIZE = 25;
+
+// The table (and the motion code it animates with) is its own chunk; the shell
+// and controls paint first behind a static skeleton.
+const CandidateTable = lazy(() =>
+  import("./components/CandidateTable").then((m) => ({ default: m.CandidateTable })),
+);
 
 export function CandidateView() {
   const [recruiterId, setRecruiterId] = useState(RECRUITERS[0].id);
@@ -79,7 +85,11 @@ export function CandidateView() {
 
       {isError && <ErrorBanner forbidden={result.status === 403} />}
 
-      {!isError && <CandidateTable items={data?.items ?? null} loading={isLoading} />}
+      {!isError && (
+        <Suspense fallback={<TableSkeleton />}>
+          <CandidateTable items={data?.items ?? null} loading={isLoading} />
+        </Suspense>
+      )}
 
       {!isError && data && data.items.length === 0 && !isLoading && <EmptyState />}
 

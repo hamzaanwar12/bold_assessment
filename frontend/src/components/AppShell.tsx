@@ -1,4 +1,5 @@
-import type { ReactNode } from "react";
+import { useRef, type ReactNode } from "react";
+import { useHeroAnimation } from "../useHeroAnimation";
 import { BrandMark } from "./BrandMark";
 
 const TAGLINE = ["Talent.", "Speed.", "Intelligence."];
@@ -9,6 +10,9 @@ const TAGLINE = ["Talent.", "Speed.", "Intelligence."];
  * in CandidateView.
  */
 export function AppShell({ children }: { children: ReactNode }) {
+  const heroRef = useRef<HTMLElement>(null);
+  useHeroAnimation(heroRef);
+
   return (
     <div className="relative isolate min-h-dvh overflow-x-clip">
       <Backdrop />
@@ -22,18 +26,25 @@ export function AppShell({ children }: { children: ReactNode }) {
         </div>
       </header>
 
-      <section className="mx-auto max-w-7xl px-4 pt-12 pb-8 sm:px-6 sm:pt-16 lg:px-8">
-        <p className="font-display text-xs font-semibold tracking-[0.25em] text-bold-cyan uppercase">
+      <section ref={heroRef} data-parallax className="mx-auto max-w-7xl px-4 pt-12 pb-8 sm:px-6 sm:pt-16 lg:px-8">
+        <p data-hero-eyebrow className="font-display text-xs font-semibold tracking-[0.25em] text-bold-cyan uppercase">
           TechForce · Recruiting operations
         </p>
-        <h1 className="mt-4 max-w-3xl font-display text-4xl leading-[1.05] font-extrabold text-balance text-white sm:text-5xl lg:text-6xl">
+        <h1 data-hero-title className="mt-4 max-w-3xl font-display text-4xl leading-[1.05] font-extrabold text-balance text-white sm:text-5xl lg:text-6xl">
           Your candidates, <span className="bg-gradient-to-r from-bold-cyan to-bold-sky bg-clip-text text-transparent">scoped to your regions.</span>
         </h1>
         <p className="mt-5 flex flex-wrap gap-x-3 font-display text-lg font-semibold text-slate-300 sm:text-xl">
           {TAGLINE.map((word) => (
-            <span key={word}>{word}</span>
+            <span key={word} data-hero-word className="inline-block">
+              {word}
+            </span>
           ))}
         </p>
+        <span
+          data-hero-sweep
+          aria-hidden="true"
+          className="mt-6 block h-px w-full max-w-md bg-gradient-to-r from-bold-cyan via-bold-sky/60 to-transparent"
+        />
       </section>
 
       <main className="mx-auto max-w-7xl px-4 pb-16 sm:px-6 lg:px-8">{children}</main>
