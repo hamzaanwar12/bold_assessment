@@ -100,3 +100,32 @@ class TestImportReportShape:
         assert report.merged == 2
         assert report.rejected[0].row == 34
         assert "malformed" in report.rejected[0].reason
+
+
+class TestSourceColumnMapping:
+    """The suite constructed Candidate(...) directly, so it never crossed the
+    CSV->model boundary. That gap hid a whole field being dropped: the source
+    column is `candidate_id`, the field is `legacy_candidate_id`, and without
+    an alias every Candidate silently lost its traceability (ADR 0001)."""
+
+    def test_candidate_id_column_populates_legacy_candidate_id(self) -> None:
+        candidate = Candidate.model_validate(
+            {
+                "candidate_id": "C-1001",
+                "first_name": "Alicia",
+                "last_name": "Trent",
+                "email": "alicia.trent@gmail.com",
+                "region_code": "US-MW",
+                "status": "Active",
+            }
+        )
+        assert candidate.legacy_candidate_id == "C-1001"
+
+    def test_field_name_still_works_for_direct_construction(self) -> None:
+        candidate = Candidate(
+            legacy_candidate_id="C-1001",
+            email="a@b.com",
+            region_code="US-MW",
+            status="active",
+        )
+        assert candidate.legacy_candidate_id == "C-1001"

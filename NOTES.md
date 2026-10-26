@@ -150,6 +150,50 @@ bound at all. Resolved by having PostgreSQL escape the value itself via
 `quote_literal()` — bound as a parameter on the way in — rather than hand-rolling
 quoting around a secret.
 
+#### Correction 7 — an entire field silently dropped, with 69 tests green
+
+This is the one I would lead with. `Candidate` declared `legacy_candidate_id`, the
+CSV column is `candidate_id`, and nothing mapped them. Pydantic ignored the unknown
+key, so **all 44 valid rows parsed with `legacy_candidate_id = None`** — every
+Candidate lost its traceability back to the source export, which ADR 0001 exists to
+preserve.
+
+The whole suite was green. It stayed green because every test constructed
+`Candidate(legacy_candidate_id=...)` **directly**, so nothing in 69 tests ever
+crossed the CSV→model boundary where the mapping lives. The tests validated the
+model against itself.
+
+Found by running the real fixture end to end and checking an acceptance criterion
+numerically: "two Candidates carry `C-1010`" returned `None`, not `2`. Fixed with
+`Field(alias="candidate_id")` plus `populate_by_name=True` so direct construction
+still works, and added a test that validates from a raw CSV-shaped dict — the
+boundary the suite was missing.
+
+Lesson: a passing suite says the code agrees with the tests. It says nothing about
+whether either agrees with the input. Drive at least one test from the real artefact.
+
+#### Correction 8 — a count that the fixture could never falsify
+
+`MergeOutcome.is_merge` was a boolean per email. But the Import Report counts
+**rows**: an email appearing three times is one Import and *two* Merges. A boolean
+reports one.
+
+No email in `candidates_import.csv` appears more than twice, so the fixture cannot
+expose this and no test would ever have failed. Changed to `merged_rows: int` with
+`is_merge` derived from it, and added the three-row case explicitly — a test the
+fixture does not motivate but the specification does.
+
+#### Correction 9 — my own row count was wrong
+
+I recorded "54 data rows" in the spec, from `wc -l`. It is **53**: row C-1050's
+quoted notes field spans three physical lines, so physical lines are not rows. The
+same assumption in code — splitting the upload on newlines — would corrupt C-1050
+and every row after it. Corrected in the spec; the parser uses the `csv` module.
+
+Verified import numbers against the real file: 53 Source Rows → 44 valid, 9
+rejected (exactly the 3 email failures, 1 impossible date, 3 region failures, 2
+status failures), folding to 41 Candidates = 38 Imports + 3 Merges.
+
 ## What I'd do next with more time
 
 - **Accent-insensitive search.** `sofia` does not currently match `Sofía`; needs the

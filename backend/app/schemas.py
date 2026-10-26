@@ -15,7 +15,7 @@ from __future__ import annotations
 from datetime import date
 from decimal import Decimal
 
-from pydantic import BaseModel, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from app.normalizers import (
     normalize_applied_date,
@@ -39,7 +39,13 @@ class Candidate(BaseModel):
     `NormalizationError`) is how a Source Row becomes a Rejection.
     """
 
-    legacy_candidate_id: str | None = None
+    model_config = ConfigDict(populate_by_name=True)
+
+    # The source column is `candidate_id`; the field is named for what it
+    # actually is (ADR 0001: a non-unique legacy reference, never an identity).
+    # Without this alias the column is silently dropped and every Candidate
+    # loses its traceability back to the source export.
+    legacy_candidate_id: str | None = Field(default=None, alias="candidate_id")
     first_name: str | None = None
     last_name: str | None = None
     email: str

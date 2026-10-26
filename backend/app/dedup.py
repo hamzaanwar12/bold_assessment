@@ -33,11 +33,20 @@ from app.schemas import Candidate
 
 @dataclass(frozen=True)
 class MergeOutcome:
-    """One Normalized Email's result after folding: the winning Candidate
-    plus whether this was a Merge (True) or an Import (False)."""
+    """One Normalized Email's result after folding.
+
+    `merged_rows` counts the Source Rows folded in *beyond the first*, because
+    the Import Report counts rows, not emails: an email appearing three times
+    is one Import and **two** Merges. A boolean here would report one, and the
+    fixture would never reveal it -- no email in it appears more than twice.
+    """
 
     candidate: Candidate
-    is_merge: bool
+    merged_rows: int = 0
+
+    @property
+    def is_merge(self) -> bool:
+        return self.merged_rows > 0
 
 
 def merge_candidate(existing: Candidate | None, incoming: Candidate) -> Candidate:
@@ -71,16 +80,19 @@ def deduplicate(rows: list[Candidate]) -> list[MergeOutcome]:
     """
     order: list[str] = []
     folded: dict[str, Candidate] = {}
-    merge_seen: dict[str, bool] = {}
+    merged_rows: dict[str, int] = {}
 
     for row in rows:
         email = row.email
         if email not in folded:
             order.append(email)
             folded[email] = row
-            merge_seen[email] = False
+            merged_rows[email] = 0
         else:
             folded[email] = merge_candidate(folded[email], row)
-            merge_seen[email] = True
+            merged_rows[email] += 1
 
-    return [MergeOutcome(candidate=folded[email], is_merge=merge_seen[email]) for email in order]
+    return [
+        MergeOutcome(candidate=folded[email], merged_rows=merged_rows[email])
+        for email in order
+    ]

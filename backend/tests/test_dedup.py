@@ -159,7 +159,43 @@ class TestDeduplicate:
 
 
 class TestMergeOutcomeType:
-    def test_is_a_simple_namedtuple_like_shape(self):
-        outcome = MergeOutcome(candidate=_candidate(), is_merge=False)
+    def test_carries_the_candidate_and_a_merged_row_count(self):
+        outcome = MergeOutcome(candidate=_candidate())
         assert outcome.candidate.email == "alicia.trent@gmail.com"
+        assert outcome.merged_rows == 0
+        # is_merge is derived from the count, not stored alongside it
         assert outcome.is_merge is False
+
+
+class TestMergeCountsRowsNotEmails:
+    """The Import Report counts rows: an email appearing three times is one
+    Import and TWO Merges. No email in the fixture appears more than twice, so
+    a boolean `is_merge` would have under-reported without any test failing."""
+
+    def _candidate(self, legacy_id: str, source: str) -> Candidate:
+        return Candidate(
+            legacy_candidate_id=legacy_id,
+            email="repeat@example.com",
+            region_code="US-MW",
+            status="active",
+            source=source,
+        )
+
+    def test_three_rows_one_email_is_two_merges(self) -> None:
+        outcomes = deduplicate(
+            [
+                self._candidate("C-1", "LinkedIn"),
+                self._candidate("C-2", "Indeed"),
+                self._candidate("C-3", "Referral"),
+            ]
+        )
+        assert len(outcomes) == 1
+        assert outcomes[0].merged_rows == 2
+        assert outcomes[0].is_merge is True
+        # last-writer-wins still holds across three rows
+        assert outcomes[0].candidate.source == "Referral"
+
+    def test_single_row_is_an_import_not_a_merge(self) -> None:
+        outcomes = deduplicate([self._candidate("C-1", "LinkedIn")])
+        assert outcomes[0].merged_rows == 0
+        assert outcomes[0].is_merge is False
