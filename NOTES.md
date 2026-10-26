@@ -5,11 +5,65 @@
 
 ## Dedup & merge rules
 
-_(filled in as implemented — see `docs/adr/0001-email-as-candidate-identity.md`)_
+**Normalized Email (trimmed, lowercased) is the Candidate identity**, with a unique
+constraint. `candidate_id` is kept as `legacy_candidate_id` — a non-unique column for
+traceability only. Reasoning in [ADR 0001](docs/adr/0001-email-as-candidate-identity.md);
+the short version is that the source data reuses `C-1010` for two demonstrably
+different people, so it cannot be an identity, while one person appears under three
+different `candidate_id` values.
+
+Consequences on the supplied file:
+
+| Case | Outcome |
+|---|---|
+| `C-1004` repeated byte-identical | one Candidate, counted as a Merge |
+| `C-1031` vs `C-1001` (`"  Alicia.Trent@Gmail.com "`) | one Candidate |
+| `C-1032` vs `C-1016` (`amara.diallo@gmail.com`) | one Candidate |
+| `C-1010` used by two different people | **two** Candidates, both keeping `C-1010` |
+
+**Merge rule: last-writer-wins by Source Row order**, with one override — a null never
+overwrites a non-null. One sentence, applied everywhere, trivially testable.
+
+Its visible cost, called out because it looks like a defect: `C-1016`'s name becomes
+**`A. Diallo`**, not `Amara Diallo`, because the later row wins. The alternative — a
+per-field "prefer the more complete value" heuristic — gives nicer output and cannot
+be stated as a single rule, so I rejected it. Predictable beats clever when someone
+else has to explain the result to a recruiter.
+
+**Counting**: `imported + merged + len(rejected)` always equals the number of Source
+Rows (53 here: 41 + 3 + 9). Every row has exactly one outcome. See Correction 10 —
+an earlier version lost three rows and every test still passed.
 
 ## Normalization decisions
 
-_(filled in as implemented — see `.scratch/candidate-import-scoped-view/spec.md`)_
+One question behind every rule: **is this value absent, or is it wrong?** Absent and
+not identity-bearing → loads as unknown. Wrong → rejected and reported, never
+silently dropped.
+
+| Field | Normalization | Rejected when |
+|---|---|---|
+| Email | trim, lowercase | malformed or empty — it is the identity |
+| Region | trim, uppercase | not one of the six canonical codes, or empty |
+| Status | case-fold | not in `active/screening/interviewing/withdrawn` |
+| Applied date | `YYYY-MM-DD`, `MM/DD/YYYY`, `DD-Mon-YYYY` | not a real calendar date. **Empty loads as unknown** |
+| Salary | strip `$`/commas, expand `k` | never — non-numeric or empty loads as unknown |
+| Names, phone, role, source, notes | trim | never — stored as literal text |
+
+Three calls that are deliberate and look harsh:
+
+- **`USW` is rejected, not repaired to `US-W`.** Region is the authorization axis. A
+  one-character guess there is how someone ends up in the wrong recruiter's queue.
+- **An empty Region is rejected** even when the rest of the row is perfect, because a
+  Region-less Candidate is invisible to all four scoped recruiters and owned by
+  nobody — an import that looks successful and produces an orphan.
+- **`actve` and `on hold` are rejected, with no catch-all enum member.** Status drives
+  recruiter behaviour. `on hold` is probably a real status upstream, which is exactly
+  why a human should see it rather than have it guessed.
+
+And one asymmetry worth stating plainly: **a missing applied date loads; `2026-02-30`
+is rejected.** A blank cell asserts nothing. An impossible date asserts something
+false, and coercing it to Feb 28 or Mar 1 would fabricate a fact nobody could later
+detect.
 
 ## Inferred calls (brief was ambiguous)
 

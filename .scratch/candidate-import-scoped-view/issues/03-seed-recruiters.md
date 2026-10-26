@@ -1,6 +1,6 @@
 # 03 — Seed the Recruiter roster
 
-Status: ready-for-agent
+Status: resolved
 Type: task
 Blocked by: 02
 Spec: ../spec.md

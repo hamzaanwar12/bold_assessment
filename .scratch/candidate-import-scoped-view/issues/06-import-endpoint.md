@@ -1,6 +1,6 @@
 # 06 — POST /api/v1/candidates/import
 
-Status: ready-for-agent
+Status: resolved
 Type: task
 Blocked by: 03, 05
 Spec: ../spec.md (Import pipeline, API contract)

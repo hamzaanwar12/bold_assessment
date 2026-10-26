@@ -1,6 +1,6 @@
 # 10 — README, NOTES, and final docs pass
 
-Status: ready-for-agent
+Status: resolved
 Type: task
 Blocked by: 09
 Spec: ../spec.md

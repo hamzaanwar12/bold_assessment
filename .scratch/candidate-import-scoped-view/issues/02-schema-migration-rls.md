@@ -1,6 +1,6 @@
 # 02 — Schema, application role, and the RLS policy
 
-Status: ready-for-agent
+Status: resolved
 Type: task
 Blocked by: 01
 Spec: ../spec.md · ADR: ../../../docs/adr/0002-rls-for-region-scoping.md

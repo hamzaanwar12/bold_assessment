@@ -1,6 +1,6 @@
 # 01 — Scaffold the repo and bring up PostgreSQL
 
-Status: ready-for-agent
+Status: resolved
 Type: task
 Blocked by: —
 Spec: ../spec.md

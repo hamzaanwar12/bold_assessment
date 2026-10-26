@@ -1,6 +1,6 @@
 # 08 — Recruiter view: table, filters, switcher
 
-Status: ready-for-agent
+Status: resolved
 Type: task
 Blocked by: 07
 Spec: ../spec.md (Frontend)
