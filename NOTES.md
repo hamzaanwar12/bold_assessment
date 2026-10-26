@@ -303,6 +303,36 @@ obvious from the output alone.
 Worth stating plainly: a documented known-limitation is still a claim, and an
 unverified one is just a comment that sounds authoritative.
 
+#### Correction 13 — a stale-response race, and a regression test that proved nothing
+
+`useCandidates` aborts the previous request before issuing a new one and checks
+`controller.signal.aborted` before using the response. But the check sat *before*
+`await res.json()`, and nothing re-checked after it. Parsing the body yields
+control, so a newer request can abort the controller during that window and the
+older response then paints — rendering the previous recruiter's Candidates, which
+on screen is indistinguishable from an authorization bug. Added a second check
+after the await.
+
+The more useful half of this entry is what happened next. My first regression test
+reproduced "the response arrives after an abort", passed, and I nearly moved on.
+Then I removed the fix and **it still passed** — the pre-await check already covered
+that scenario, so the test demonstrated nothing and would have sat in the suite
+looking like protection.
+
+The window is narrower than I first described: it needs the abort to land *during*
+body parsing, not before the response. Rewritten with a `json()` that resolves
+slowly, which fails without the guard (`CalebOnly` paints) and passes with it —
+verified in both directions.
+
+Caveat recorded rather than glossed: with real `fetch`, aborting mid-`json()`
+normally rejects the body promise and lands in the `.catch`, so this is less
+reachable in a browser than in a mock. The guard is one line and costless; the
+reasoning is worth more than the fix.
+
+Lesson, and it generalises past this codebase: **a regression test is only evidence
+if you have watched it fail.** Every test added here for a defect was run against
+the unfixed code first.
+
 ## What I'd do next with more time
 
 - **Accent-insensitive search.** Verified: `muller` does not match `Müller`. Needs

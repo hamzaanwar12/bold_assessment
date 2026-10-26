@@ -70,6 +70,12 @@ export function useCandidates(params: UseCandidatesParams): UseCandidatesResult 
           return;
         }
         const data: CandidatesResponse = await res.json();
+        // Re-check AFTER the await. Parsing the body yields control, and a
+        // newer request can abort this controller in that window -- so a
+        // check made only before the await still lets a superseded response
+        // paint. That renders the PREVIOUS recruiter's Candidates, which is
+        // indistinguishable from an authorization bug.
+        if (controller.signal.aborted) return;
         setResult({ state: "ready", data });
       })
       .catch((err) => {

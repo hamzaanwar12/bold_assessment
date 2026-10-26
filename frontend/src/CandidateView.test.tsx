@@ -113,3 +113,58 @@ describe("CandidateView rendering", () => {
     expect(screen.getByText(/Jürgen Müller/)).toBeInTheDocument();
   });
 });
+
+describe("superseded responses cannot paint", () => {
+  it("ignores a stale response whose body resolves after a newer request aborted it", async () => {
+    // The narrow window this guards: Caleb's fetch() resolves promptly, so the
+    // pre-await `aborted` check passes -- but his BODY is still parsing. The
+    // switch to Marisol aborts his controller during that parse. When his
+    // json() finally resolves, only a second check after the await stops his
+    // US-MW row from overwriting her PH-MNL row.
+    const candidate = (first_name: string, region_code: string) => ({
+      legacy_candidate_id: "C-1",
+      first_name,
+      last_name: "Example",
+      email: `${first_name.toLowerCase()}@example.com`,
+      phone: null,
+      region_code,
+      desired_role: "Engineer",
+      salary_expectation: null,
+      applied_date: "2026-05-14",
+      status: "active",
+      source: "LinkedIn",
+      notes: null,
+    });
+
+    const fetchMock = fetch as unknown as ReturnType<typeof vi.fn>;
+    fetchMock.mockImplementation((_url: unknown, init?: RequestInit) => {
+      const headers = (init?.headers ?? {}) as Record<string, string>;
+      const isCaleb = headers["X-Recruiter-Id"] === "R-102";
+      const body = isCaleb
+        ? { items: [candidate("CalebOnly", "US-MW")], total: 1, page: 1, page_size: 25 }
+        : { items: [candidate("MarisolOnly", "PH-MNL")], total: 1, page: 1, page_size: 25 };
+      // Response resolves immediately; the BODY is what lags for Caleb.
+      return Promise.resolve({
+        ok: true,
+        status: 200,
+        json: () =>
+          isCaleb
+            ? new Promise((resolve) => setTimeout(() => resolve(body), 80))
+            : Promise.resolve(body),
+      } as unknown as Response);
+    });
+
+    const user = userEvent.setup();
+    render(<CandidateView />);
+    const select = screen.getByLabelText(/recruiter/i);
+
+    await user.selectOptions(select, "R-102");
+    await user.selectOptions(select, "R-103");
+
+    await waitFor(() => expect(screen.getByText(/MarisolOnly/)).toBeInTheDocument());
+    await new Promise((resolve) => setTimeout(resolve, 200));
+
+    expect(screen.queryByText(/CalebOnly/)).not.toBeInTheDocument();
+    expect(screen.getByText(/MarisolOnly/)).toBeInTheDocument();
+  });
+});
