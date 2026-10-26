@@ -1,9 +1,13 @@
+import { AnimatePresence, m } from "motion/react";
 import type { Candidate } from "../useCandidates";
 import { RegionChip } from "./RegionChip";
 import { StatusBadge } from "./StatusBadge";
+import { COLUMNS } from "./columns";
+import { SkeletonRow } from "./TableSkeleton";
 
-const COLUMNS = ["Name", "Email", "Region", "Desired role", "Status", "Applied date"];
 const SKELETON_ROWS = 6;
+// Stagger is capped so a full 25-row page still settles in well under a second.
+const rowDelay = (i: number) => Math.min(i, 12) * 0.035;
 
 // One <table> for every viewport. Below `sm` it restyles into stacked cards
 // (each cell labels itself via data-label) instead of rendering a second card
@@ -31,16 +35,24 @@ export function CandidateTable({ items, loading }: CandidateTableProps) {
         <tbody className="divide-y divide-white/5 max-sm:block max-sm:space-y-3 max-sm:divide-y-0 max-sm:p-3">
           {loading && !items
             ? Array.from({ length: SKELETON_ROWS }, (_, i) => <SkeletonRow key={i} />)
-            : items?.map((c) => <CandidateRow key={c.id} candidate={c} />)}
+            : (
+                <AnimatePresence initial>
+                  {items?.map((c, i) => <CandidateRow key={c.id} candidate={c} index={i} />)}
+                </AnimatePresence>
+              )}
         </tbody>
       </table>
     </div>
   );
 }
 
-export function CandidateRow({ candidate: c }: { candidate: Candidate }) {
+function CandidateRow({ candidate: c, index }: { candidate: Candidate; index: number }) {
   return (
-    <tr className="transition-colors hover:bg-bold-cyan/[0.04] max-sm:block max-sm:rounded-xl max-sm:border max-sm:border-white/10 max-sm:bg-white/[0.03] max-sm:p-4">
+    <m.tr
+      initial={{ opacity: 0, y: 10 }}
+      animate={{ opacity: 1, y: 0, transition: { delay: rowDelay(index), duration: 0.35, ease: "easeOut" } }}
+      exit={{ opacity: 0, transition: { duration: 0.15 } }}
+      className="transition-colors hover:bg-bold-cyan/[0.04] max-sm:block max-sm:rounded-xl max-sm:border max-sm:border-white/10 max-sm:bg-white/[0.03] max-sm:p-4">
       <td data-label="Name" className={`${cell} max-sm:before:hidden`}>
         <span className="flex items-center gap-3">
           <Initials first={c.first_name} last={c.last_name} />
@@ -58,7 +70,7 @@ export function CandidateRow({ candidate: c }: { candidate: Candidate }) {
         <StatusBadge status={c.status} />
       </td>
       <td data-label="Applied date" className={`${cell} text-slate-400 tabular-nums`}>{c.applied_date}</td>
-    </tr>
+    </m.tr>
   );
 }
 
@@ -73,17 +85,5 @@ function Initials({ first, last }: { first: string; last: string }) {
     >
       {text.toUpperCase()}
     </span>
-  );
-}
-
-function SkeletonRow() {
-  return (
-    <tr aria-hidden="true" className="max-sm:block max-sm:rounded-xl max-sm:border max-sm:border-white/10 max-sm:p-4">
-      {COLUMNS.map((c) => (
-        <td key={c} className="px-4 py-4 max-sm:block max-sm:px-0 max-sm:py-1.5">
-          <span className="block h-3 w-full max-w-40 animate-pulse rounded bg-white/10" />
-        </td>
-      ))}
-    </tr>
   );
 }

@@ -9,7 +9,7 @@ interface PaginationProps {
 }
 
 const button =
-  "inline-flex h-10 items-center gap-1.5 rounded-xl border border-white/10 bg-white/5 px-4 text-sm font-medium text-white transition hover:border-bold-cyan/50 hover:bg-bold-cyan/10 disabled:pointer-events-none disabled:opacity-40";
+  "inline-flex h-10 items-center gap-1.5 rounded-xl border border-white/10 bg-white/5 px-4 text-sm font-medium text-white transition active:scale-95 hover:-translate-y-px hover:border-bold-cyan/50 hover:bg-bold-cyan/10 disabled:pointer-events-none disabled:opacity-40";
 
 export function Pagination({ page, totalPages, total, onPrevious, onNext }: PaginationProps) {
   return (
