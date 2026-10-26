@@ -141,10 +141,47 @@ class TestFilters:
         assert all_active
         assert all(item["status"] == "active" for item in all_active)
 
+    def test_status_filter_actually_combines_with_a_search_term(self, client, seeded_and_imported):
+        """The test above never passes `search`, so it cannot prove the two
+        filters combine (AND, not OR) -- only that status alone works. Pick
+        a candidate with a known status and search for them by name while
+        also filtering on their status: the match must survive. Then search
+        for the same name while filtering on a status they do NOT have: the
+        combined filter must exclude them, proving `search` and `status` are
+        ANDed rather than each applied independently."""
+        admin = _list(client, "R-101", page_size=100).json()["items"]
+        sample = admin[0]
+        matching = _list(
+            client, "R-101", search=sample["last_name"], status=sample["status"]
+        ).json()["items"]
+        assert sample["email"] in {item["email"] for item in matching}
+
+        other_status = next(s for s in ("active", "screening", "interviewing", "withdrawn") if s != sample["status"])
+        excluded = _list(
+            client, "R-101", search=sample["last_name"], status=other_status
+        ).json()["items"]
+        assert sample["email"] not in {item["email"] for item in excluded}
+
     def test_search_matches_case_insensitively_across_fields(self, client, seeded_and_imported):
         admin = _list(client, "R-101", page_size=100).json()["items"]
         sample = admin[0]
         response = _list(client, "R-101", search=sample["last_name"].upper())
+        assert response.status_code == 200
+        emails = {item["email"] for item in response.json()["items"]}
+        assert sample["email"] in emails
+
+    def test_search_matches_email_case_insensitively(self, client, seeded_and_imported):
+        admin = _list(client, "R-101", page_size=100).json()["items"]
+        sample = admin[0]
+        response = _list(client, "R-101", search=sample["email"].upper())
+        assert response.status_code == 200
+        emails = {item["email"] for item in response.json()["items"]}
+        assert sample["email"] in emails
+
+    def test_search_matches_desired_role_case_insensitively(self, client, seeded_and_imported):
+        admin = _list(client, "R-101", page_size=100).json()["items"]
+        sample = admin[0]
+        response = _list(client, "R-101", search=sample["desired_role"].upper())
         assert response.status_code == 200
         emails = {item["email"] for item in response.json()["items"]}
         assert sample["email"] in emails
