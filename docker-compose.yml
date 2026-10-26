@@ -1,0 +1,21 @@
+services:
+  db:
+    image: postgres:16-alpine
+    container_name: techforce-db
+    environment:
+      POSTGRES_USER: techforce
+      POSTGRES_PASSWORD: techforce
+      POSTGRES_DB: techforce
+    ports:
+      - "127.0.0.1:5433:5432"
+    volumes:
+      - techforce-pgdata:/var/lib/postgresql/data
+      - ./docker/initdb:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U techforce -d techforce"]
+      interval: 2s
+      timeout: 3s
+      retries: 20
+
+volumes:
+  techforce-pgdata:

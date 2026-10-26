@@ -35,7 +35,6 @@ destructive operations (`push --force`, `reset --hard`, `branch -D`, `rm -rf`,
 
 ### Caught and corrected
 
-_(appended as it happens — see "Corrections" entries below)_
 
 #### Correction 1 — environment audit before delegating
 
@@ -57,6 +56,47 @@ problems that would each have failed silently or late:
 
 Lesson applied: audit the delegation substrate before delegating, not after the
 first failure. A background agent's failure is much quieter than a foreground one's.
+
+#### Correction 2 — the deny-list I wrote was decorative
+
+I generated `.claude/settings.json` with a broad allowlist plus a deny list of
+destructive git operations, and it looked right. An automated security review
+flagged three holes, all of which I had written and none of which I had noticed:
+
+- `Bash(python*)` was allowed, so `python -c "import subprocess; ..."` re-enabled
+  every single denied operation. Same for `node -e`, `npx`, `uv run`.
+- `Bash(git push*)` was allowed and `Bash(git push --force*)` denied -- but these
+  rules are *prefix* matches, so `git push origin main --force` matched the allow
+  and never matched the deny. The guardrail was inert for the exact command it
+  existed to stop.
+- `Bash(curl -s localhost*)` matched `localhost.evil.com`, because prefix matching
+  does not stop at the host boundary.
+
+Corrected by removing every bare interpreter wildcard, denying inline-exec forms
+(`python -c`, `node -e`), narrowing `git push` to three exact safe spellings, pinning
+curl past the `host:port` boundary, and denying agents write access to
+`.claude/settings.json` so a worker cannot widen its own permissions.
+
+Stated limit, since the allowlist should not be oversold: `npm run *` executes
+whatever `package.json` defines, and the implementers write `package.json`. This is
+protection against *accidental* destruction, not containment of a determined agent.
+
+#### Correction 3 — vitest config in the wrong defineConfig
+
+The generated `vite.config.ts` put a `test: {...}` block inside `defineConfig`
+imported from `vite`. That type does not accept `test`, so `tsc -b` failed the
+build. Fixed by importing `defineConfig` from `vitest/config`, which accepts both
+the Vite and Vitest keys. Caught by running the build rather than assuming it.
+
+#### Environment finding -- contested port 8000
+
+Not an AI error, but worth recording because it would have been poisonous during a
+recorded demo. An unrelated pre-existing process was already listening on `*:8000`.
+Our uvicorn bound `127.0.0.1:8000` *successfully alongside it*, so both were live
+and `curl localhost:8000/health` non-deterministically hit the other service -- it
+answered with a JSON error shape that was not FastAPI's, which is what gave it away.
+Two listeners on one port do not fail loudly; they fail confusingly. The API moved
+to 8010 and the sole-listener check is now part of setup.
 
 ## What I'd do next with more time
 
