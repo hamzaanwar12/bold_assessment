@@ -12,12 +12,12 @@ import csv
 import io
 
 import psycopg
-from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
+from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile
 from pydantic import ValidationError
 
 from app.dedup import deduplicate
-from app.db import write_import
-from app.deps import Recruiter, get_app_dsn, require_admin
+from app.db import CandidateListPage, list_candidates, write_import
+from app.deps import Recruiter, get_app_dsn, require_admin, resolve_recruiter
 from app.normalizers import NormalizationError
 from app.schemas import Candidate, ImportReport, RejectedRow
 
@@ -94,3 +94,35 @@ def import_candidates(
         ) from exc
 
     return ImportReport(imported=imported, merged=merged, rejected=rejected)
+
+
+# Deliberately `def`, not `async def`: same reasoning as the import handler
+# above -- this is blocking psycopg I/O, so it belongs in FastAPI's
+# threadpool, not on the event loop.
+@router.get("", response_model=CandidateListPage)
+def get_candidates(
+    search: str | None = Query(default=None),
+    status: str | None = Query(default=None),
+    page: int = Query(default=1, ge=1),
+    page_size: int = Query(default=25, ge=1),
+    recruiter: Recruiter = Depends(resolve_recruiter),
+    dsn: str = Depends(get_app_dsn),
+) -> CandidateListPage:
+    # Recruiter resolution (and its 403 for an unknown identifier) already
+    # happened in the `resolve_recruiter` dependency, before this handler
+    # body -- and therefore before any Candidate query is constructed
+    # (spec.md: API contract; docs/adr/0002).
+    # Clamped, not rejected (spec.md: "page_size defaults to 25, hard
+    # maximum 100") -- an over-large page_size is a valid request for "as
+    # many as allowed", not a 422.
+    page_size = min(page_size, 100)
+    with psycopg.connect(dsn) as conn:
+        with conn.transaction():
+            return list_candidates(
+                conn,
+                recruiter.recruiter_id,
+                search=search,
+                status=status,
+                page=page,
+                page_size=page_size,
+            )
