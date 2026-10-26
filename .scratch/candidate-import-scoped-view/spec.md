@@ -248,8 +248,11 @@ is a failed request and surfaces as a `5xx` with nothing written.
   global Candidate count even while `items` is correctly fenced — a quiet
   information disclosure that passes every test written against `items`.
 - `search` matches case-insensitively across first name, last name, email, and
-  desired role. Accent folding is **not** implemented: `sofia` will not match
-  `Sofía`. Deliberate scope call, documented as future work.
+  desired role. Accent folding is **not** implemented: verified, `muller` does not
+  match `Müller`. Deliberate scope call, documented as future work. Note the gap is
+  narrower than it looks -- `sofia` *does* find `Sofía Cárdenas`, because `search`
+  also covers the email column and hers is `sofia.cardenas@hotmail.com`. It bites
+  only where the email offers no ASCII echo of the accented name.
 - `status` filters on Candidate Status.
 
 ### Schema
@@ -418,7 +421,8 @@ what follows, which is why the seams are written down rather than left implicit.
 - Candidate write operations other than Import: no create, update, or delete
   endpoints.
 - Recruiter management. The roster is seeded fixture data.
-- Accent-insensitive search. `sofia` will not match `Sofía`. Noted as future work.
+- Accent-insensitive search. Verified: `muller` will not match `Müller`. Noted as
+  future work.
 - A CSS framework or design system. Styling is minimal by instruction.
 - Containerising the API or frontend. Only PostgreSQL is containerised.
 - A CI pipeline.

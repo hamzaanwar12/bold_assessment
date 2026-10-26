@@ -283,10 +283,33 @@ Other deliberate limits:
 - Rate limiting, audit logging, and CSRF are absent; there is no browser session to
   forge and no multi-tenant boundary beyond Region.
 
+#### Correction 12 — a documented limitation whose own example was wrong
+
+I had written that `search=sofia` would not match `Sofía Cárdenas` because there is
+no accent folding. Checking it against the running API: it returns her. Her email is
+`sofia.cardenas@hotmail.com`, and `search` covers the email column, so ILIKE matched
+there. The limitation is real; my example of it was not.
+
+The accurate example is `muller` vs `Müller`, whose email is `jurgen.mueller@gmail.com`
+and therefore offers no ASCII echo — verified `muller` → 0, `Müller` → 1,
+`mueller` → 1. Corrected in both the spec and the future-work list.
+
+Also recorded because it briefly fooled me the other way: `search=Trần` returns
+nothing, which looks like a Unicode bug. It is not — `C-1044` has region `USW` and
+is one of the nine rejected rows, so he was never imported. And `tran` returns
+`Rachel Ostrander`, matching the substring in her surname. Both correct; neither
+obvious from the output alone.
+
+Worth stating plainly: a documented known-limitation is still a claim, and an
+unverified one is just a comment that sounds authoritative.
+
 ## What I'd do next with more time
 
-- **Accent-insensitive search.** `sofia` does not currently match `Sofía`; needs the
-  `unaccent` extension plus a functional index.
+- **Accent-insensitive search.** Verified: `muller` does not match `Müller`. Needs
+  the `unaccent` extension plus a functional index. Note the limitation is narrower
+  than it first appears -- `sofia` *does* find `Sofía Cárdenas`, but only because
+  `search` also covers the email column and hers is `sofia.cardenas@hotmail.com`.
+  It bites exactly when the email offers no ASCII echo of the accented name.
 - **Identity-merge workflow.** Email is the candidate identity, so a candidate who
   changes email becomes a new record. A production system needs an explicit merge.
 - **Audit logging** on imports and on scoped reads.
