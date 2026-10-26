@@ -19,3 +19,11 @@ The five canonical triage roles, used verbatim as label strings. See `docs/agent
 ### Domain docs
 
 Single-context: `GLOSSARY.md` and `docs/adr/` at the repo root. See `docs/agents/domain.md`.
+
+### Git workflow
+
+One ticket → one worktree → one PR, merged with a merge commit. See `docs/agents/git-workflow.md`.
+
+### Frontend UI
+
+Tailwind tokens, motion rules, and the DOM contract the tests rely on. See `docs/ui.md`.

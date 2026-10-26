@@ -116,7 +116,9 @@ curl -s "http://localhost:8010/api/v1/candidates?page_size=100" -H "X-Recruiter-
 curl -s -o /dev/null -w '%{http_code}\n' "http://localhost:8010/api/v1/candidates" -H "X-Recruiter-Id: R-999"   # 403
 ```
 
-In the UI, switch recruiter in the dropdown and the rows change.
+In the UI, switch recruiter in the dropdown and the rows change. The stats bar
+shows the recruiter's regions and the matching total. On a phone the table becomes
+stacked cards. Animations turn off when the OS asks for reduced motion.
 
 ### Proving the control is in the database, not the API
 
@@ -140,8 +142,8 @@ that is exactly why the API uses `techforce_app`.
 # Backend — 121 tests
 cd backend && set -a && . ../.env && set +a && uv run pytest -v
 
-# Frontend — 4 tests
-cd frontend && npm test
+# Frontend — 6 tests, plus lint, type check and production build
+cd frontend && npm run lint && npm test && npm run build
 ```
 
 The backend suite migrates `techforce_test` itself and rolls each test back, so it
@@ -162,7 +164,12 @@ backend/
   alembic/versions/  schema + app role + RLS policy, in one revision
 frontend/src/
   useCandidates.ts   fetch + AbortController, no data-fetching library
-  CandidateView.tsx  table, search, status filter, recruiter switcher
-docs/adr/            the two decisions worth recording
+  CandidateView.tsx  all view state: search, status filter, recruiter switcher
+  components/        presentational pieces (table, toolbar, stats, badges)
+  useHeroAnimation.ts  lazy-loaded GSAP intro
+  index.css          Tailwind @theme tokens (Bold Business palette)
+docs/adr/            the decisions worth recording
+docs/ui.md           styling, motion and responsive rules for the frontend
+docs/agents/git-workflow.md  worktree → PR → merge loop
 data/                the supplied fixtures
 ```
