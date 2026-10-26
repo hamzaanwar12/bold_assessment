@@ -35,8 +35,17 @@ def _rejection_reason(exc: ValidationError) -> str:
     return errors[0]["msg"] if errors else "invalid row"
 
 
+# A legacy export is a bounded artefact, not a stream. Cap it so an unbounded
+# upload cannot exhaust memory, and answer 413 rather than dying.
+MAX_UPLOAD_BYTES = 16 * 1024 * 1024
+
+
+# Deliberately `def`, not `async def`: this handler does blocking work --
+# psycopg I/O and CSV parsing. In an async handler that work runs ON the event
+# loop and stalls every other request for the duration of the import. FastAPI
+# runs a sync handler in a threadpool instead.
 @router.post("/import", response_model=ImportReport)
-async def import_candidates(
+def import_candidates(
     file: UploadFile = File(...),
     recruiter: Recruiter = Depends(require_admin),
     dsn: str = Depends(get_app_dsn),
@@ -45,7 +54,13 @@ async def import_candidates(
     if not filename.lower().endswith(".csv"):
         raise HTTPException(status_code=400, detail="upload must be a .csv file")
 
-    raw = await file.read()
+    # Read one byte past the cap: if we get it, the upload is over the limit.
+    raw = file.file.read(MAX_UPLOAD_BYTES + 1)
+    if len(raw) > MAX_UPLOAD_BYTES:
+        raise HTTPException(
+            status_code=413,
+            detail=f"upload exceeds the {MAX_UPLOAD_BYTES // (1024 * 1024)} MiB limit",
+        )
     try:
         text = raw.decode("utf-8")
     except UnicodeDecodeError as exc:

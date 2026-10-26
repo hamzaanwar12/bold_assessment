@@ -16,6 +16,7 @@ from __future__ import annotations
 import io
 from pathlib import Path
 
+import csv
 import psycopg
 import pytest
 from fastapi.testclient import TestClient
@@ -101,16 +102,14 @@ class TestImportReport:
         assert response.status_code == 200
         body = response.json()
 
-        # Row 1 (ann@example.com) + Row 3 (case/whitespace variant of the
-        # same email) fold to one Candidate within this Import: that
-        # Candidate is new to the database, but folded from two Source
-        # Rows, so it is counted as 1 Merge (the extra row), not an
-        # Import -- matching app.dedup.deduplicate's own row-counting
-        # convention. Row 2 (bea@example.com) is a standalone Import.
-        # Rows 4 and 5 are Rejections.
-        assert body["imported"] == 1
+        # Row 1 (ann@example.com) created a Candidate -> Import.
+        # Row 3 (case/whitespace variant of the same email) folded into it
+        # -> Merge. Row 2 (bea@example.com) -> Import. Rows 4, 5 -> Rejections.
+        # Every Source Row therefore has exactly one outcome: 2 + 1 + 2 = 5.
+        assert body["imported"] == 2
         assert body["merged"] == 1
         assert {r["row"] for r in body["rejected"]} == {4, 5}
+        assert body["imported"] + body["merged"] + len(body["rejected"]) == 5
         reasons = {r["row"]: r["reason"] for r in body["rejected"]}
         assert "email" in reasons[4] or "malformed" in reasons[4]
         assert "region" in reasons[5] or "ZZ-99" in reasons[5]
@@ -134,7 +133,7 @@ class TestImportReport:
     def test_reupload_of_already_imported_row_counts_as_merge_not_import(self, client, seeded_recruiters):
         first = _upload(client, SMALL_CSV).json()
         second = _upload(client, SMALL_CSV).json()
-        assert first["imported"] == 1
+        assert first["imported"] == 2
         assert first["merged"] == 1
         # Re-uploading the same file: every survivor already exists in the
         # database, so nothing is a new Import the second time (spec.md,
@@ -175,10 +174,18 @@ class TestRealFixtureAcceptance:
         assert response.status_code == 200
         body = response.json()
 
-        assert body["imported"] == 38
+        assert body["imported"] == 41
         assert body["merged"] == 3
         assert len(body["rejected"]) == 9
         assert {r["row"] for r in body["rejected"]} == {34, 35, 36, 41, 45, 46, 48, 49, 53}
+
+        # The Import Report must account for its input: every Source Row is
+        # imported, merged, or rejected -- exactly one of the three. An earlier
+        # version credited only the Merges of a folded group and silently lost
+        # three rows (50 != 53) while every other assertion still passed.
+        source_rows = sum(1 for _ in csv.DictReader(io.StringIO(content.decode("utf-8"))))
+        assert source_rows == 53
+        assert body["imported"] + body["merged"] + len(body["rejected"]) == source_rows
 
         with seeded_recruiters.cursor() as cur:
             cur.execute("SELECT count(*) FROM candidates")

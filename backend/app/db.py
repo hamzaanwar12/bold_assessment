@@ -59,6 +59,10 @@ def _candidate_from_row(row: dict[str, object]) -> Candidate:
     return Candidate.model_construct(**row)
 
 
+# PostgreSQL's hard limit is 65535 bind parameters per statement.
+_MAX_ROWS_PER_STATEMENT = 65535 // len(_FIELDS)
+
+
 def write_import(
     conn: psycopg.Connection, recruiter_id: str, outcomes: list[MergeOutcome]
 ) -> tuple[int, int]:
@@ -103,33 +107,41 @@ def write_import(
             elif outcome.merged_rows == 0:
                 imported += 1
             else:
-                # New to the database, but folded from more than one
-                # Source Row within this Import: the extra rows are
-                # Merges (ADR 0001 / app.dedup), matching how `deduplicate`
-                # itself reports a single Normalized Email's outcome.
+                # New to the database and folded from several Source Rows:
+                # the FIRST row created the Candidate (an Import) and each
+                # extra row folded into it (a Merge). Crediting only the
+                # Merges loses the first row, and then the report no longer
+                # accounts for its input -- imported + merged + rejected
+                # must equal the number of Source Rows.
+                imported += 1
                 merged += outcome.merged_rows
 
         placeholder_row = "(" + ", ".join(["%s"] * len(_FIELDS)) + ")"
-        values_sql = ", ".join([placeholder_row] * len(finals))
         set_clause = ", ".join(f"{field} = EXCLUDED.{field}" for field in _FIELDS if field != "email")
 
-        params: list[object] = []
-        for candidate in finals:
-            for field in _FIELDS:
-                value = getattr(candidate, field)
-                if value is None and field in _NOT_NULL_TEXT_FIELDS:
-                    value = ""
-                params.append(value)
+        # PostgreSQL allows at most 65535 bind parameters per statement, so a
+        # single VALUES list cannot hold an unbounded number of rows. Chunk by
+        # that limit rather than row count, and keep every chunk inside the
+        # caller's one transaction so the import stays all-or-nothing.
+        for start in range(0, len(finals), _MAX_ROWS_PER_STATEMENT):
+            chunk = finals[start : start + _MAX_ROWS_PER_STATEMENT]
+            params: list[object] = []
+            for candidate in chunk:
+                for field in _FIELDS:
+                    value = getattr(candidate, field)
+                    if value is None and field in _NOT_NULL_TEXT_FIELDS:
+                        value = ""
+                    params.append(value)
 
-        cur.execute(
-            f"""
-            INSERT INTO candidates ({", ".join(_FIELDS)})
-            VALUES {values_sql}
-            ON CONFLICT (email) DO UPDATE SET
-                {set_clause},
-                updated_at = now()
-            """,
-            params,
-        )
+            cur.execute(
+                f"""
+                INSERT INTO candidates ({", ".join(_FIELDS)})
+                VALUES {", ".join([placeholder_row] * len(chunk))}
+                ON CONFLICT (email) DO UPDATE SET
+                    {set_clause},
+                    updated_at = now()
+                """,
+                params,
+            )
 
     return imported, merged

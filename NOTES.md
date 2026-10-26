@@ -194,6 +194,47 @@ Verified import numbers against the real file: 53 Source Rows → 44 valid, 9
 rejected (exactly the 3 email failures, 1 impossible date, 3 region failures, 2
 status failures), folding to 41 Candidates = 38 Imports + 3 Merges.
 
+#### Correction 10 — an Import Report that did not account for its input (my error, propagated)
+
+The import endpoint reported `imported=38, merged=3, rejected=9` on the fixture.
+38 + 3 + 9 = **50**, against 53 Source Rows. Three rows simply vanished from the
+accounting.
+
+Cause: a Candidate new to the database but folded from several Source Rows credited
+only its *extra* rows as Merges, never crediting the first row as an Import. The
+implementation's own docstring described the correct rule ("one Import plus one
+Merge per extra row") while the code below it did something else.
+
+**The 38 came from me.** My verification script counted `sum(1 for o in outcomes if
+not o.is_merge)` — candidates with no merge — and I then handed "38 imported" to the
+implementer as an acceptance number. It built to my number faithfully and its tests
+locked the error in. The lesson is about delegation, not about this bug: a number
+supplied to an agent as ground truth stops being checked. Derive the invariant and
+let the agent satisfy it, rather than handing over a figure.
+
+Fixed so every Source Row has exactly one outcome, and added the invariant as an
+assertion rather than a comment:
+
+    imported + merged + len(rejected) == number of Source Rows
+
+Verified on the live API: first import `41 + 3 + 9 = 53`; re-uploading the same file
+`0 + 44 + 9 = 53` with the Candidate count unchanged at 41.
+
+#### Correction 11 — blocking I/O on the event loop, and an unbounded upload
+
+Three further defects in the endpoint, flagged by security review:
+
+- The handler was `async def` but did blocking work — psycopg I/O and CSV parsing —
+  which runs **on** the event loop and stalls every other request for the duration
+  of an import. Changed to a plain `def`, which FastAPI runs in a threadpool. This
+  is a quietly common FastAPI mistake: it is correct-looking, passes every test, and
+  only shows up as mysterious latency under concurrency.
+- The upload was read unbounded into memory. Now capped, returning 413.
+- The batched upsert put every row in one `VALUES` list. PostgreSQL allows at most
+  65535 bind parameters per statement, so at 12 columns the import would have failed
+  above ~5460 rows — well inside "a real client export". Now chunked by that limit,
+  with every chunk inside the same transaction so the import stays all-or-nothing.
+
 ## What I'd do next with more time
 
 - **Accent-insensitive search.** `sofia` does not currently match `Sofía`; needs the
