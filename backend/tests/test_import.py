@@ -210,6 +210,101 @@ class TestRealFixtureAcceptance:
         assert count == 0
 
 
+class TestRealFixtureDedupThroughHttp:
+    """Matrix items 1-3 (09-test-suite.md): the dedup/merge claim exercised
+    through the real HTTP import path and the real fixture rows, not just
+    the pure in-memory logic in test_dedup.py. These specific Legacy
+    Candidate IDs (C-1004, C-1031/C-1001, C-1010) are real rows in
+    data/candidates_import.csv -- verified by grep before writing this.
+    """
+
+    def test_c1004_exact_duplicate_collapses_to_one_candidate(self, client, seeded_recruiters):
+        _upload(client, FIXTURE_CSV.read_bytes())
+        with seeded_recruiters.cursor() as cur:
+            cur.execute(
+                "SELECT count(*) FROM candidates WHERE email = 'daniel.okafor@gmail.com'"
+            )
+            (count,) = cur.fetchone()
+        assert count == 1
+
+    def test_c1031_merges_into_c1001_last_writer_wins(self, client, seeded_recruiters):
+        _upload(client, FIXTURE_CSV.read_bytes())
+        with seeded_recruiters.cursor() as cur:
+            cur.execute(
+                "SELECT count(*), source FROM candidates "
+                "WHERE email = 'alicia.trent@gmail.com' GROUP BY source"
+            )
+            rows = cur.fetchall()
+        # C-1001 and C-1031 are the same Candidate (case/whitespace variant
+        # email) -- one row, and C-1031 (the later Source Row) is the last
+        # writer, so its "Indeed" source wins over C-1001's "LinkedIn".
+        assert len(rows) == 1
+        (count, source) = rows[0]
+        assert count == 1
+        assert source == "Indeed"
+
+    def test_c1010_collision_yields_two_candidates(self, client, seeded_recruiters):
+        _upload(client, FIXTURE_CSV.read_bytes())
+        with seeded_recruiters.cursor() as cur:
+            cur.execute(
+                "SELECT email FROM candidates WHERE legacy_candidate_id = 'C-1010'"
+            )
+            emails = {row[0] for row in cur.fetchall()}
+        # Same Legacy Candidate ID, two different emails -> two Candidates
+        # (ADR 0001: email is identity, Legacy Candidate ID is not).
+        assert emails == {"sofia.cardenas@hotmail.com", "becca.storm@gmail.com"}
+
+
+class TestRejectionReasonsThroughHttp:
+    """Matrix items 4-6: specific rejection/acceptance behaviours named in
+    the ticket, checked against the real fixture rows that exercise them
+    (verified by inspecting data/candidates_import.csv before writing this).
+    """
+
+    def test_missing_email_rejected_with_reason(self, client, seeded_recruiters):
+        response = _upload(client, FIXTURE_CSV.read_bytes())
+        body = response.json()
+        # Row 36: C-1035, email column entirely empty.
+        reasons = {r["row"]: r["reason"] for r in body["rejected"]}
+        assert 36 in reasons
+        assert "email" in reasons[36]
+
+    def test_impossible_calendar_date_rejected(self, client, seeded_recruiters):
+        response = _upload(client, FIXTURE_CSV.read_bytes())
+        body = response.json()
+        # Row 41: C-1040, applied_date 2026-02-30.
+        reasons = {r["row"]: r["reason"] for r in body["rejected"]}
+        assert 41 in reasons
+        assert "date" in reasons[41]
+
+    def test_empty_applied_date_is_imported_with_unknown_date(self, client, seeded_recruiters):
+        _upload(client, FIXTURE_CSV.read_bytes())
+        with seeded_recruiters.cursor() as cur:
+            cur.execute(
+                "SELECT applied_date FROM candidates WHERE email = 'petra.novak@gmail.com'"
+            )
+            (applied_date,) = cur.fetchone()
+        # Row 43 (C-1041): applied_date column is empty -- loads as unknown
+        # (NULL), not rejected.
+        assert applied_date is None
+
+    def test_missing_hyphen_region_rejected(self, client, seeded_recruiters):
+        response = _upload(client, FIXTURE_CSV.read_bytes())
+        body = response.json()
+        # Row 45: C-1044, region "USW" (missing hyphen) -- not repaired.
+        reasons = {r["row"]: r["reason"] for r in body["rejected"]}
+        assert 45 in reasons
+        assert "region" in reasons[45] or "USW" in reasons[45]
+
+    def test_empty_region_rejected(self, client, seeded_recruiters):
+        response = _upload(client, FIXTURE_CSV.read_bytes())
+        body = response.json()
+        # Row 53: C-1051, region_code column entirely empty.
+        reasons = {r["row"]: r["reason"] for r in body["rejected"]}
+        assert 53 in reasons
+        assert "region" in reasons[53]
+
+
 class TestDatabaseFailureRollsBackTheWholeImport:
     """The HTTP seam cannot force a database error here: every value that
     reaches write_import has already passed Candidate validation, so it
