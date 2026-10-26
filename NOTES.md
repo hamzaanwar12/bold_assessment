@@ -98,6 +98,58 @@ answered with a JSON error shape that was not FastAPI's, which is what gave it a
 Two listeners on one port do not fail loudly; they fail confusingly. The API moved
 to 8010 and the sole-listener check is now part of setup.
 
+#### Correction 4 — my own ADR overstated what FORCE ROW LEVEL SECURITY buys
+
+ADR 0002 (which I wrote) claimed `FORCE ROW LEVEL SECURITY` was one of two guards
+against RLS being bypassed "by a table's owner or a superuser". The implementer
+followed it faithfully and its tests passed. Verifying the claim myself rather than
+trusting it, I connected as the Docker superuser with `relforcerowsecurity = true`
+and got **every row back**.
+
+`FORCE` closes the *table owner* bypass only. A superuser or a `BYPASSRLS` role
+bypasses RLS unconditionally and `FORCE` does nothing about it. The real guarantee is
+that the API connects as `techforce_app`, which is `rolsuper = false` and
+`rolbypassrls = false` — confirmed from `pg_roles`. `FORCE` is a narrower second
+guard for the case where the app role is later made the table owner.
+
+This is the most dangerous class of error in the whole exercise: a security claim
+that is *almost* right, in a document other agents are told to treat as authority,
+where every test still passes. Corrected in ADR 0002 with the verification output.
+
+Verified independently, as `techforce_app`, not through the API:
+
+| probe | result |
+|---|---|
+| no `app.recruiter_id` set | 0 rows — fails closed |
+| `R-103` (PH-MNL\|CO-BOG) | only `CO-BOG`, `PH-MNL` |
+| `R-101` (admin) | all four regions |
+| `R-999` (unknown id) | 0 rows |
+| `set_config` with `'; DROP TABLE candidates; --` | stored as a literal, 0 rows, table intact |
+
+#### Correction 5 — a catalog reading that was wrong, settled by experiment
+
+Reviewing the policy I noted `polwithcheck IS NULL` and labelled it "writes
+unconstrained". Wrong: for a `FOR ALL` policy PostgreSQL reuses the `USING`
+expression as the write check. Tested instead of inferred — as `techforce_app` with
+`R-103`, inserting a `US-MW` Candidate is rejected with *"new row violates
+row-level security policy"*, while a `PH-MNL` insert succeeds. Writes are
+region-fenced too, which is stronger than the brief requires. Recorded in ADR 0002
+along with its consequence for the import path.
+
+#### Correction 6 — a hardcoded credential in a migration
+
+The generated migration contained `CREATE ROLE techforce_app LOGIN PASSWORD
+'techforce_app'` — a credential in version control, identical on every machine that
+ever runs it. Now read from a required `TECHFORCE_APP_PASSWORD`, failing loudly if
+absent rather than falling back to a literal.
+
+The fix had a second-order problem worth noting: `CREATE ROLE` is a utility
+statement, so PostgreSQL accepts no bind parameter for the password, and a `DO`
+block takes no parameters either. The first attempt (`PASSWORD :pw`) would not have
+bound at all. Resolved by having PostgreSQL escape the value itself via
+`quote_literal()` — bound as a parameter on the way in — rather than hand-rolling
+quoting around a secret.
+
 ## What I'd do next with more time
 
 - **Accent-insensitive search.** `sofia` does not currently match `Sofía`; needs the

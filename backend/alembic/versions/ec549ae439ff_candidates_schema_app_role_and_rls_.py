@@ -25,6 +25,8 @@ Create Date: 2026-10-26 22:08:49.718129
 """
 from typing import Sequence, Union
 
+import os
+
 from alembic import op
 import sqlalchemy as sa
 
@@ -34,6 +36,25 @@ revision: str = 'ec549ae439ff'
 down_revision: Union[str, Sequence[str], None] = None
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
+
+def _app_role_password() -> str:
+    """The application role's password, from the environment -- never a literal.
+
+    A password committed in a migration is a credential in version control that
+    is identical on every machine that ever runs it. Required rather than
+    defaulted: a silent fallback would be the committed credential again, just
+    less visible. `.env.example` carries the development value and the README
+    documents it.
+    """
+    password = os.environ.get("TECHFORCE_APP_PASSWORD")
+    if not password:
+        raise RuntimeError(
+            "TECHFORCE_APP_PASSWORD is not set. It is the password for the "
+            "non-owner application role this migration creates. Copy .env.example "
+            "to .env (see README) or export it before running alembic."
+        )
+    return password
+
 
 REGION_CODES = ("US-MW", "US-NE", "US-SE", "US-W", "PH-MNL", "CO-BOG")
 CANDIDATE_STATUSES = ("active", "screening", "interviewing", "withdrawn")
@@ -112,12 +133,20 @@ def upgrade() -> None:
     # keeps table ownership; techforce_app gets DML only. This is one of
     # the two independent guards against the owner-bypass trap -- see
     # docs/adr/0002.
-    op.execute(
-        """
+    # CREATE ROLE is a utility statement: PostgreSQL accepts no bind parameter
+    # for the password, and a DO block takes no parameters either. So the value
+    # is escaped by the database itself via quote_literal() -- bound as a
+    # parameter on the way in -- rather than by hand-rolled quoting here.
+    bind = op.get_bind()
+    quoted_password = bind.execute(
+        sa.text("SELECT quote_literal(:pw)"), {"pw": _app_role_password()}
+    ).scalar_one()
+    bind.exec_driver_sql(
+        f"""
         DO $$
         BEGIN
             IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'techforce_app') THEN
-                CREATE ROLE techforce_app LOGIN PASSWORD 'techforce_app';
+                CREATE ROLE techforce_app LOGIN PASSWORD {quoted_password};
             END IF;
         END
         $$;

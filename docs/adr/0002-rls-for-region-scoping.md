@@ -50,17 +50,41 @@ Good:
 
 Bad / accepted:
 
-- **RLS does not apply to a table's owner or to a superuser.** This is the trap: the
-  policy can exist, the tests can pass, and the protection can be entirely absent
-  because the connection happens to own the table. Mitigated with two independent
-  guards — the non-owner `techforce_app` role, and `FORCE ROW LEVEL SECURITY` — and
-  by requiring the authorization tests to connect as `techforce_app`. Noted here
-  because a future reader who switches the connection string back to the owner for
-  convenience will silently disable the entire authorization model.
+- **RLS does not apply to a table's owner, nor to a superuser or a `BYPASSRLS`
+  role.** This is the trap: the policy can exist, the tests can pass, and the
+  protection can be entirely absent because of who the connection happens to be.
+
+  Note precisely what each guard buys, because it is easy to overstate:
+  `FORCE ROW LEVEL SECURITY` closes the *table owner* bypass **only**. It does
+  **not** stop a superuser or a role with `BYPASSRLS` — those bypass RLS
+  unconditionally, `FORCE` or not. Verified on this schema: connected as the
+  Docker superuser `techforce`, `SELECT * FROM candidates` returns every row with
+  `relforcerowsecurity = true`.
+
+  So the guarantee does not rest on `FORCE`. It rests on the API connecting as
+  `techforce_app`, which is `rolsuper = false` and `rolbypassrls = false`. `FORCE`
+  is a second, narrower guard for the case where the app role is later made the
+  owner. The authorization tests must therefore connect as `techforce_app`
+  specifically — a fixture handing them the owner connection would make them pass
+  while verifying nothing.
+
+  A future reader who repoints the API's connection string at the owner role for
+  convenience silently disables the entire authorization model.
 - The policy's subquery runs per row scanned; needs an index on
   `recruiter_regions(recruiter_id, region_code)` and on `candidates(region_code)`.
   Fine at this size, worth measuring at scale.
 - Authorization logic now lives in a migration rather than in application code,
   which is a less obvious place to look for it. Hence this ADR.
-- The import path writes globally and is deliberately **not** governed by the policy;
-  it is gated separately by an Admin-only check in the application.
+- The policy is declared `FOR ALL` with no explicit `WITH CHECK`, so PostgreSQL
+  reuses the `USING` expression to constrain writes as well as reads. Verified:
+  connected as `techforce_app` with `app.recruiter_id = 'R-103'`, inserting a
+  `US-MW` Candidate fails with *"new row violates row-level security policy"*,
+  while inserting a `PH-MNL` one succeeds. Writes are region-fenced too, which is
+  stronger than the brief asks for.
+
+  Consequence for the import path: it writes Candidates in every Region, so it must
+  run with an Admin's `app.recruiter_id` set — the policy's admin branch is what
+  permits those writes. Import is already Admin-only in the application, so the two
+  constraints agree; but an import that forgot to set the session value would fail
+  every insert rather than silently writing unscoped data. Failing closed is the
+  intended behaviour.
