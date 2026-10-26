@@ -444,6 +444,47 @@ Also from the Standards axis, both applied: the response models moved out of
 `_set_recruiter_scope` helper — worth it less for the duplication than because it
 makes a single place responsible for keeping the recruiter id a bound parameter.
 
+## UI pass: Tailwind, Motion, GSAP
+
+The brief says not to grade CSS, so styling stayed minimal for the core slice.
+A follow-up pass themed the view on the Bold Business site:
+- palette from its stylesheet
+- landing-style hero
+- responsive card layout
+- animation
+
+The data layer was not touched. Design rules are in `docs/ui.md`; the decision
+is in ADR 0003.
+
+#### Correction 17 — a mobile card list that would have doubled every name
+
+The first proposal rendered a `<table>` for desktop and a separate card list for
+phones, toggled with `hidden sm:block`. jsdom applies no CSS, so both lists would
+render and `getByText(/Jürgen Müller/)` would throw on multiple matches. Screen
+readers have the same problem: they ignore `display` utilities on a list they can
+still reach. Replaced with one table that restyles into cards below `sm`, with
+cell captions from `data-label`.
+
+#### Correction 18 — "lazy-loaded" GSAP that wasn't
+
+The generated hook used `@gsap/react`'s `useGSAP`, which needs `gsap` imported
+statically. That pulled GSAP into the main chunk while the code claimed to lazy
+load it. I switched to a plain effect with dynamic `import("gsap")` and
+`gsap.context()` for cleanup, and dropped the dependency.
+
+#### Correction 19 — +150 kB from one import line
+
+`import { motion } from "motion/react"` grew the main chunk from 237 kB to 388 kB.
+Moved to `<LazyMotion strict>` with `m.*` components and the features loaded
+async; main is now 284 kB. `strict` turns any future `motion.*` import into a
+runtime error instead of a silent regression.
+
+#### Correction 20 — a stat label that lied under a filter
+
+"Candidates in scope" showed `0` while a search was active: it is the filtered
+total, not the recruiter's scope. Renamed to "Matching candidates". Caught from a
+screenshot, not a test.
+
 ## What I'd do next with more time
 
 - **Accent-insensitive search.** Verified: `muller` does not match `Müller`. Needs
@@ -455,4 +496,6 @@ makes a single place responsible for keeping the recruiter id a bound parameter.
   changes email becomes a new record. A production system needs an explicit merge.
 - **Audit logging** on imports and on scoped reads.
 - **Containerized CI** running the suite, linting, and type checks before merge.
+- **Visual regression** (Playwright screenshots at 375/768/1440) in that CI, since
+  the UI now has layout rules a unit test cannot see.
 - **Index tuning** for the RLS policy's per-row subquery at realistic scale.
