@@ -1,7 +1,11 @@
 import { useEffect, useRef, useState } from "react";
 
 export interface Candidate {
-  legacy_candidate_id: string;
+  // The server's stable row identity. Key lists on this, never on
+  // legacy_candidate_id: the source data reuses one legacy id across two
+  // different people (ADR 0001), so it collides.
+  id: number;
+  legacy_candidate_id: string | null;
   first_name: string;
   last_name: string;
   email: string;

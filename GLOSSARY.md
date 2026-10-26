@@ -46,7 +46,17 @@ whose visibility does not depend on it.
 Where a Candidate sits in the hiring pipeline: `active`, `screening`,
 `interviewing`, `withdrawn`. A property of a **person**.
 
-Distinct from Import Outcome. Do not call either one "status" unqualified.
+Distinct from Import Outcome, which is a property of a **row**. In prose, and in
+any identifier where both concepts are in scope, qualify which one you mean.
+
+The bare name `status` is deliberately kept in three places where it is fixed by
+something outside this glossary: the `candidates.status` column, the
+`?status=` query parameter (the brief specifies that URL), and the React state
+backing that filter. None of those sit anywhere near an Import Outcome, so there
+is nothing to confuse them with. An earlier version of this entry said "do not
+call either one 'status' unqualified" without exception, which would have required
+renaming an API parameter the brief mandates — the rule was broader than the
+problem it protects against.
 
 ## Import Outcome
 

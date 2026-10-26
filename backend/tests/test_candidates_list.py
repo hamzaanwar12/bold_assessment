@@ -185,3 +185,33 @@ class TestFilters:
         assert response.status_code == 200
         emails = {item["email"] for item in response.json()["items"]}
         assert sample["email"] in emails
+
+
+class TestResponseContract:
+    """Pins the JSON field names the frontend reads.
+
+    This boundary was unprotected and it broke: adding `alias="candidate_id"`
+    to read the CSV column also renamed the field on the way OUT, because
+    FastAPI serializes response models with by_alias=True. The frontend read
+    `legacy_candidate_id`, got undefined, and TypeScript could not catch it --
+    its interface asserts a shape rather than verifying one.
+    """
+
+    def test_list_response_uses_glossary_field_names(self, client, seeded_and_imported):
+        body = client.get(
+            "/api/v1/candidates", params={"page_size": 1}, headers={"X-Recruiter-Id": "R-101"}
+        ).json()
+        item = body["items"][0]
+        assert "legacy_candidate_id" in item, "the frontend reads this name"
+        assert "candidate_id" not in item, "the validation alias must not leak into the response"
+        assert isinstance(item["id"], int), "rows need a stable identity for list keys"
+
+    def test_legacy_candidate_id_is_not_unique_so_id_is_required(self, client, seeded_and_imported):
+        """ADR 0001: one legacy id covers two different people. Anything keyed
+        on it collides; `id` is what distinguishes them."""
+        body = client.get(
+            "/api/v1/candidates", params={"page_size": 100}, headers={"X-Recruiter-Id": "R-101"}
+        ).json()
+        shared = [i for i in body["items"] if i["legacy_candidate_id"] == "C-1010"]
+        assert len(shared) == 2, "the fixture's deliberate id collision"
+        assert len({i["id"] for i in shared}) == 2, "ids must distinguish them"

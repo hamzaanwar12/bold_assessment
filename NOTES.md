@@ -387,6 +387,63 @@ Lesson, and it generalises past this codebase: **a regression test is only evide
 if you have watched it fail.** Every test added here for a defect was run against
 the unfixed code first.
 
+#### Correction 14 — my own fix silently changed the API contract
+
+Correction 7 added `Field(alias="candidate_id")` so the CSV column would populate
+`legacy_candidate_id`. That fixed the import. It also broke the API, because a plain
+`alias=` in Pydantic v2 applies on the way **out** as well, and FastAPI serializes
+response models with `by_alias=True` by default. So the list endpoint started
+returning `candidate_id` instead of `legacy_candidate_id`.
+
+The frontend read `c.legacy_candidate_id` and got `undefined` — for every row. And
+`tsc` was clean throughout, because the frontend's `Candidate` interface is a
+hand-written assertion about the server's shape, not a check of it. A typed
+frontend against an untyped contract gives you the feeling of safety and none of it.
+
+Fixed with `validation_alias="candidate_id"`, which scopes the alias to input and
+leaves the response using the glossary's name. Added two tests that pin the response
+field names — the boundary that was unprotected. Verified both fail under the old
+plain `alias=` and pass after.
+
+Found by the Spec axis of the code review, chasing a different bug (below).
+
+#### Correction 15 — a React key on a deliberately non-unique field
+
+`CandidateView` used `key={c.legacy_candidate_id}`. ADR 0001 states plainly that the
+legacy id is **not** an identity — the fixture reuses `C-1010` for two different
+people. The admin view contains both of them (ids 10 and 41), so this produced
+duplicate keys, and React silently misrenders rows on re-order or filter rather
+than erroring.
+
+Compounded by Correction 14: because the field was `undefined` in the response,
+*every* row shared the key `undefined`, not just the two colliding ones.
+
+Keyed on `id` instead, the server's stable row identity, and added a test asserting
+the two `C-1010` rows carry distinct ids. Two independent mistakes landed on the same
+line, and the second hid the first.
+
+#### Correction 16 — narrowing a standard I wrote, instead of obeying it
+
+The Standards axis flagged a hard violation: `GLOSSARY.md` said *"Do not call either
+one 'status' unqualified"*, and the code uses bare `status` in both layers.
+
+Correct against the letter of the rule. But the brief specifies the URL —
+*"Build `GET /api/v1/candidates?search=&status=`"* — so that parameter cannot be
+renamed, and the frontend contains no Import Outcome concept for `status` to be
+ambiguous with. Obeying the rule meant renaming an externally fixed API parameter.
+
+So I narrowed the rule to what it actually protects against: qualify the term in
+prose and wherever both concepts are in scope, and record the three places where the
+bare name is fixed from outside. Worth logging because the reflex under review
+pressure is to comply with the written standard; sometimes the standard is the
+defect, and a rule broader than its problem generates busywork that looks like rigor.
+
+Also from the Standards axis, both applied: the response models moved out of
+`db.py` into `schemas.py` (they were only there because a ticket forbade touching
+`schemas.py`), and the duplicated `set_config` call became one
+`_set_recruiter_scope` helper — worth it less for the duplication than because it
+makes a single place responsible for keeping the recruiter id a bound parameter.
+
 ## What I'd do next with more time
 
 - **Accent-insensitive search.** Verified: `muller` does not match `Müller`. Needs
