@@ -21,3 +21,6 @@ dist/
 
 # Claude Code local overrides
 .claude/settings.local.json
+
+# Agent worktrees (git-managed, never committed)
+.claude/worktrees/
