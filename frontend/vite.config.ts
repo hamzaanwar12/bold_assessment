@@ -1,6 +1,7 @@
 /// <reference types="vitest" />
 import { defineConfig } from "vitest/config";
 import react from "@vitejs/plugin-react";
+import tailwindcss from "@tailwindcss/vite";
 
 // The API is reached through this proxy, so the browser sees a single origin.
 // Deliberate: the backend then needs no CORS middleware, which means there is no
@@ -10,7 +11,7 @@ import react from "@vitejs/plugin-react";
 // development machine, and two listeners on one port produce non-deterministic
 // routing.
 export default defineConfig({
-  plugins: [react()],
+  plugins: [react(), tailwindcss()],
   server: {
     proxy: {
       "/api": {
