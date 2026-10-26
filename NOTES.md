@@ -235,6 +235,54 @@ Three further defects in the endpoint, flagged by security review:
   above ~5460 rows — well inside "a real client export". Now chunked by that limit,
   with every chunk inside the same transaction so the import stays all-or-nothing.
 
+## Security posture, and exactly where it stops
+
+Worth separating two axes that get conflated, because the brief simplifies one and
+not the other:
+
+**Authentication — who is asking — is deliberately fake.** `X-Recruiter-Id` is an
+unverified, client-supplied header. Anyone who can reach the API can claim to be
+Dana and import Candidates. The brief specifies this ("simplified auth — no login
+flow needed") so it is a requirement, not an oversight, and an automated security
+review flagged it exactly as it should. In production this is a verified credential
+— a signed token whose claims yield the recruiter id, or a gateway that authenticates
+the user and strips any client-supplied copy of the header — and nothing else about
+the design changes, because the identity enters at one place (`app/deps.py`).
+
+**Authorization — what that caller may see — is real and is enforced in the
+database.** This is the part the exercise is actually testing, and it does not
+depend on the header being trustworthy:
+
+- The region fence is a PostgreSQL RLS policy, not a `WHERE` clause an endpoint
+  remembers to add. A future endpoint that forgets to scope returns nothing.
+- The policy resolves Assigned Regions **itself** from `recruiter_regions` and
+  `is_admin`. The application passes only an identifier, so an application bug
+  cannot widen anyone's visibility by passing the wrong region list.
+- The API connects as `techforce_app`: `rolsuper=false`, `rolbypassrls=false`,
+  not the table owner. This — not `FORCE ROW LEVEL SECURITY` — is what actually
+  makes the policy apply. See Correction 4.
+- Writes are fenced too, not just reads (Correction 5).
+- `total` is computed inside the scoped transaction, so the row count cannot leak
+  the global figure while `items` looks correct.
+
+So: trusting the header lets a caller choose *which* recruiter they are. It does not
+let them see outside whatever that recruiter is permitted to see, and it cannot be
+widened from application code. Promoting the header to a verified credential is a
+self-contained change; moving authorization out of the data layer would not be.
+
+Other deliberate limits:
+
+- Dev credentials are committed in `docker-compose.yml` and `.env.example` so setup
+  works from a clean machine. The application role's password is **not** — it comes
+  from `TECHFORCE_APP_PASSWORD` and the migration fails loudly without it
+  (Correction 6).
+- `recruiters` and `recruiter_regions` carry no RLS and are readable by
+  `techforce_app`, because the policy's own lookup needs them. A recruiter could
+  therefore read the roster. The roster is not Candidate data and the brief treats
+  it as a fixture, so this is accepted rather than fixed.
+- Rate limiting, audit logging, and CSRF are absent; there is no browser session to
+  forge and no multi-tenant boundary beyond Region.
+
 ## What I'd do next with more time
 
 - **Accent-insensitive search.** `sofia` does not currently match `Sofía`; needs the
