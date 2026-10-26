@@ -1,6 +1,6 @@
 # 04 — Normalization and the rejection boundary
 
-Status: ready-for-agent
+Status: resolved
 Type: task
 Blocked by: 01
 Spec: ../spec.md (Normalization and the rejection boundary)

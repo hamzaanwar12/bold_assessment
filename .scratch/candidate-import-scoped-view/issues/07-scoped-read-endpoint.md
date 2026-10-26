@@ -1,6 +1,6 @@
 # 07 — GET /api/v1/candidates, scoped at the data layer
 
-Status: ready-for-agent
+Status: resolved
 Type: task
 Blocked by: 06
 Spec: ../spec.md (Authorization, API contract) · ADR: ../../../docs/adr/0002-rls-for-region-scoping.md

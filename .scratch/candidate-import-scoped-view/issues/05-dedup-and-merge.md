@@ -1,6 +1,6 @@
 # 05 — Deduplicate and merge on Normalized Email
 
-Status: ready-for-agent
+Status: resolved
 Type: task
 Blocked by: 04
 Spec: ../spec.md · ADR: ../../../docs/adr/0001-email-as-candidate-identity.md

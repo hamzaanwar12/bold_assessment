@@ -1,6 +1,6 @@
 # 09 — Test suite
 
-Status: ready-for-agent
+Status: resolved
 Type: task
 Blocked by: 08
 Spec: ../spec.md (Testing Decisions)
