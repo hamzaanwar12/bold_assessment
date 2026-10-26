@@ -23,6 +23,7 @@ Import is Admin-only in the application as well (docs/adr/0002,
 from __future__ import annotations
 
 import psycopg
+from pydantic import BaseModel
 
 from app.dedup import MergeOutcome, merge_candidate
 from app.schemas import Candidate
@@ -145,3 +146,94 @@ def write_import(
             )
 
     return imported, merged
+
+
+# Column order for the read path -- `id` plus every field the Import write
+# path already knows how to serialize. One repository function (this one)
+# is the only Candidate read path in application code (ticket 07; spec.md
+# "API contract"; docs/adr/0002, "a single repository function remains the
+# only read path"): the router builds no query of its own.
+_LIST_FIELDS = ("id", *_FIELDS)
+
+
+class CandidateOut(Candidate):
+    """A Candidate as returned by the list endpoint (ticket 07): the stored
+    row plus its database identity. Lives here, not in app/schemas.py --
+    that module is scoped to the Candidate/Import Report shapes owned by
+    earlier tickets (see its module docstring)."""
+
+    id: int
+
+
+class CandidateListPage(BaseModel):
+    """One page of the Candidate list (spec.md: API contract,
+    `GET /api/v1/candidates`)."""
+
+    items: list[CandidateOut]
+    total: int
+    page: int
+    page_size: int
+
+
+def list_candidates(
+    conn: psycopg.Connection,
+    recruiter_id: str,
+    *,
+    search: str | None,
+    status: str | None,
+    page: int,
+    page_size: int,
+) -> CandidateListPage:
+    """Return one page of Candidates, scoped to `recruiter_id`'s Assigned
+    Regions by the RLS policy on `candidates` (docs/adr/0002).
+
+    Sets `app.recruiter_id` via `set_config(..., true)` (`SET LOCAL`
+    semantics), bound as a parameter -- never interpolated -- then runs the
+    `COUNT` and the page `SELECT` in the SAME transaction the caller already
+    opened, so both are fenced by the identical RLS context. Computing
+    `total` outside this transaction (or on a second connection) would leak
+    the global Candidate count while `items` still looked correctly scoped
+    -- the specific trap ticket 07 calls out.
+
+    `ORDER BY id` gives pagination a deterministic order; without one,
+    PostgreSQL may return rows in a different order across two queries and
+    page 2 can repeat or skip rows.
+    """
+    with conn.cursor() as cur:
+        cur.execute("SELECT set_config('app.recruiter_id', %s, true)", (recruiter_id,))
+
+        where_clauses: list[str] = []
+        params: list[object] = []
+        if search:
+            where_clauses.append(
+                "(first_name ILIKE %s OR last_name ILIKE %s OR email ILIKE %s OR desired_role ILIKE %s)"
+            )
+            pattern = f"%{search}%"
+            params.extend([pattern, pattern, pattern, pattern])
+        if status:
+            where_clauses.append("status = %s")
+            params.append(status)
+        where_sql = f"WHERE {' AND '.join(where_clauses)}" if where_clauses else ""
+
+        cur.execute(f"SELECT count(*) FROM candidates {where_sql}", params)
+        (total,) = cur.fetchone()
+
+        offset = (page - 1) * page_size
+        cur.execute(
+            f"""
+            SELECT {", ".join(_LIST_FIELDS)} FROM candidates
+            {where_sql}
+            ORDER BY id
+            LIMIT %s OFFSET %s
+            """,
+            [*params, page_size, offset],
+        )
+        columns = [desc[0] for desc in cur.description]
+        # model_construct, not model_validate: these values are already
+        # normalized and typed by the database (same reasoning as
+        # `_candidate_from_row` above) -- re-running the Candidate
+        # validators on an already-Decimal salary or already-date
+        # applied_date raises, since the normalizers expect raw strings.
+        items = [CandidateOut.model_construct(**dict(zip(columns, row))) for row in cur.fetchall()]
+
+    return CandidateListPage(items=items, total=total, page=page, page_size=page_size)
