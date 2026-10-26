@@ -1,4 +1,9 @@
 import { useState } from "react";
+import { CandidateTable } from "./components/CandidateTable";
+import { EmptyState, ErrorBanner } from "./components/Notices";
+import { Pagination } from "./components/Pagination";
+import { StatsBar } from "./components/StatsBar";
+import { Toolbar } from "./components/Toolbar";
 import { RECRUITERS } from "./recruiters";
 import { useCandidates } from "./useCandidates";
 import { useDebouncedValue } from "./useDebouncedValue";
@@ -37,116 +42,55 @@ export function CandidateView() {
     setPage(1);
   };
 
+  const recruiter = RECRUITERS.find((r) => r.id === recruiterId) ?? RECRUITERS[0];
   const isError = result.state === "error";
   const isLoading = result.state === "loading";
   const data = result.state === "ready" ? result.data : null;
   const totalPages = data ? Math.max(1, Math.ceil(data.total / data.page_size)) : 1;
 
   return (
-    <section aria-labelledby="candidates-heading">
-      <h2 id="candidates-heading">Candidates</h2>
-
-      <div className="controls">
-        <label>
-          Recruiter
-          <select
-            value={recruiterId}
-            onChange={(e) => handleRecruiterChange(e.target.value)}
-          >
-            {RECRUITERS.map((r) => (
-              <option key={r.id} value={r.id}>
-                {r.name}
-              </option>
-            ))}
-          </select>
-        </label>
-
-        <label>
-          Search
-          <input
-            type="text"
-            value={searchInput}
-            onChange={(e) => handleSearchChange(e.target.value)}
-            placeholder="Name, email, role..."
-          />
-        </label>
-
-        <label>
-          Status
-          <select value={status} onChange={(e) => handleStatusChange(e.target.value)}>
-            <option value="">All</option>
-            {STATUSES.map((s) => (
-              <option key={s} value={s}>
-                {s}
-              </option>
-            ))}
-          </select>
-        </label>
+    <section aria-labelledby="candidates-heading" className="space-y-6">
+      <div className="flex items-end justify-between gap-4">
+        <h2 id="candidates-heading" className="font-display text-2xl font-bold text-white">
+          Candidates
+        </h2>
+        {isLoading && (
+          <p aria-live="polite" className="flex items-center gap-2 text-sm text-bold-cyan">
+            <span aria-hidden="true" className="size-2 animate-ping rounded-full bg-bold-cyan" />
+            Loading Candidates...
+          </p>
+        )}
       </div>
 
-      {isError && (
-        <p role="alert" className="error-banner">
-          {result.status === 403
-            ? "Not authorized: this Recruiter cannot view these Candidates."
-            : "Something went wrong loading Candidates."}
-        </p>
-      )}
+      <StatsBar recruiter={recruiter} total={data?.total ?? null} />
 
-      {isLoading && <p aria-live="polite">Loading Candidates...</p>}
+      <div className="rounded-2xl border border-white/10 bg-bold-navy/40 p-4 shadow-glow backdrop-blur-md sm:p-5">
+        <Toolbar
+          recruiters={RECRUITERS}
+          recruiterId={recruiterId}
+          onRecruiterChange={handleRecruiterChange}
+          search={searchInput}
+          onSearchChange={handleSearchChange}
+          statuses={STATUSES}
+          status={status}
+          onStatusChange={handleStatusChange}
+        />
+      </div>
 
-      {!isError && (
-        <table>
-          <thead>
-            <tr>
-              <th>Name</th>
-              <th>Email</th>
-              <th>Region</th>
-              <th>Desired role</th>
-              <th>Status</th>
-              <th>Applied date</th>
-            </tr>
-          </thead>
-          <tbody>
-            {data?.items.map((c) => (
-              <tr key={c.id}>
-                <td>
-                  {c.first_name} {c.last_name}
-                </td>
-                <td>{c.email}</td>
-                <td>{c.region_code}</td>
-                <td>{c.desired_role}</td>
-                <td>{c.status}</td>
-                <td>{c.applied_date}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      )}
+      {isError && <ErrorBanner forbidden={result.status === 403} />}
 
-      {!isError && data && data.items.length === 0 && !isLoading && (
-        <p>No Candidates match the current search and filters.</p>
-      )}
+      {!isError && <CandidateTable items={data?.items ?? null} loading={isLoading} />}
+
+      {!isError && data && data.items.length === 0 && !isLoading && <EmptyState />}
 
       {!isError && data && (
-        <div className="pagination">
-          <button
-            type="button"
-            onClick={() => setPage((p) => Math.max(1, p - 1))}
-            disabled={page <= 1}
-          >
-            Previous
-          </button>
-          <span>
-            Page {data.page} of {totalPages} ({data.total} total)
-          </span>
-          <button
-            type="button"
-            onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
-            disabled={page >= totalPages}
-          >
-            Next
-          </button>
-        </div>
+        <Pagination
+          page={data.page}
+          totalPages={totalPages}
+          total={data.total}
+          onPrevious={() => setPage((p) => Math.max(1, p - 1))}
+          onNext={() => setPage((p) => Math.min(totalPages, p + 1))}
+        />
       )}
     </section>
   );
